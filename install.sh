@@ -29,6 +29,9 @@ Options:
   --log-confs <value>         true or false. Default: true
   --puid <value>              Container PUID. Default: 0
   --pgid <value>              Container PGID. Default: 0
+  --with-panel                Install the web panel as a systemd service.
+  --panel-port <value>        Web panel TCP port. Default: 51821
+  --panel-password <value>    Admin password for the web panel.
   --install-docker            Install Docker on Ubuntu/Debian if missing.
   --help                      Show this help.
 EOF
@@ -76,10 +79,14 @@ validate_peers() {
   done
 }
 
-install_docker_official() {
+load_os_release() {
   [[ -r /etc/os-release ]] || die "Cannot detect the operating system."
   # shellcheck disable=SC1091
   . /etc/os-release
+}
+
+install_docker_official() {
+  load_os_release
 
   case "${ID}" in
     ubuntu)
@@ -122,6 +129,147 @@ EOF
   esac
 
   systemctl enable --now docker
+}
+
+ensure_python_for_panel() {
+  if command -v python3 >/dev/null 2>&1; then
+    local probe_dir
+    probe_dir="$(mktemp -d)"
+    if python3 -m venv "${probe_dir}/venv" >/dev/null 2>&1; then
+      rm -rf "${probe_dir}"
+      return
+    fi
+    rm -rf "${probe_dir}"
+  fi
+
+  load_os_release
+  case "${ID}" in
+    ubuntu|debian)
+      log "Installing Python venv support for the web panel."
+      apt-get update
+      apt-get install -y python3 python3-venv
+      ;;
+    *)
+      die "Python 3 with venv support is required for the web panel."
+      ;;
+  esac
+}
+
+generate_random_password() {
+  python3 - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_letters + string.digits
+print("".join(secrets.choice(alphabet) for _ in range(22)))
+PY
+}
+
+generate_secret_key() {
+  python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+}
+
+generate_password_hash() {
+  local raw_password="$1"
+  PANEL_PASSWORD_RAW="${raw_password}" python3 - <<'PY'
+import hashlib
+import os
+import secrets
+
+password = os.environ["PANEL_PASSWORD_RAW"].encode("utf-8")
+iterations = 390000
+salt = secrets.token_bytes(16)
+digest = hashlib.pbkdf2_hmac("sha256", password, salt, iterations).hex()
+print(f"pbkdf2_sha256${iterations}${salt.hex()}${digest}")
+PY
+}
+
+read_env_value() {
+  local file_path="$1"
+  local key="$2"
+
+  [[ -f "${file_path}" ]] || return 0
+  awk -F= -v wanted="${key}" '$1 == wanted { sub(/^[^=]+=*/, "", $0); print $0; exit }' "${file_path}"
+}
+
+write_panel_env_file() {
+  local panel_env_path="${SCRIPT_DIR}/.panel.env"
+
+  cat >"${panel_env_path}" <<EOF
+WG_PANEL_HOST=0.0.0.0
+WG_PANEL_PORT=${PANEL_PORT}
+WG_PANEL_URL=http://${SERVER_URL}:${PANEL_PORT}
+WG_PANEL_SECRET_KEY=${PANEL_SECRET_KEY}
+WG_PANEL_PASSWORD_HASH=${PANEL_PASSWORD_HASH}
+WG_PANEL_COOKIE_SECURE=false
+EOF
+
+  chmod 600 "${panel_env_path}"
+}
+
+install_panel_service() {
+  local service_path="/etc/systemd/system/wireguard-panel.service"
+
+  cat >"${service_path}" <<EOF
+[Unit]
+Description=WireGuard Web Panel
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${SCRIPT_DIR}
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=${SCRIPT_DIR}/.panel.env
+ExecStart=${SCRIPT_DIR}/.panel-venv/bin/gunicorn --workers 2 --bind 0.0.0.0:\${WG_PANEL_PORT} panel.app:create_app()
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now wireguard-panel
+}
+
+install_web_panel() {
+  local panel_env_path="${SCRIPT_DIR}/.panel.env"
+  local panel_venv_path="${SCRIPT_DIR}/.panel-venv"
+  local existing_hash=""
+  local existing_secret=""
+
+  ensure_python_for_panel
+
+  log "Preparing the web panel virtual environment."
+  python3 -m venv "${panel_venv_path}"
+  "${panel_venv_path}/bin/pip" install --upgrade pip >/dev/null
+  "${panel_venv_path}/bin/pip" install -r "${SCRIPT_DIR}/panel/requirements.txt"
+
+  if [[ -f "${panel_env_path}" ]]; then
+    existing_hash="$(read_env_value "${panel_env_path}" "WG_PANEL_PASSWORD_HASH")"
+    existing_secret="$(read_env_value "${panel_env_path}" "WG_PANEL_SECRET_KEY")"
+  fi
+
+  PANEL_SECRET_KEY="${existing_secret:-$(generate_secret_key)}"
+
+  if [[ -n "${PANEL_PASSWORD}" ]]; then
+    PANEL_PASSWORD_HASH="$(generate_password_hash "${PANEL_PASSWORD}")"
+    PANEL_PASSWORD_OUTPUT="${PANEL_PASSWORD}"
+  elif [[ -n "${existing_hash}" ]]; then
+    PANEL_PASSWORD_HASH="${existing_hash}"
+    PANEL_PASSWORD_OUTPUT=""
+  else
+    PANEL_PASSWORD_OUTPUT="$(generate_random_password)"
+    PANEL_PASSWORD_HASH="$(generate_password_hash "${PANEL_PASSWORD_OUTPUT}")"
+  fi
+
+  write_panel_env_file
+  install_panel_service
+  maybe_open_ufw_port "${PANEL_PORT}" tcp
 }
 
 ensure_docker_and_compose() {
@@ -171,6 +319,9 @@ EOF
 }
 
 maybe_open_ufw_port() {
+  local port="$1"
+  local protocol="$2"
+
   if ! command -v ufw >/dev/null 2>&1; then
     return
   fi
@@ -181,8 +332,8 @@ maybe_open_ufw_port() {
     return
   fi
 
-  log "Opening ${SERVER_PORT}/udp in ufw."
-  ufw allow "${SERVER_PORT}/udp" >/dev/null
+  log "Opening ${port}/${protocol} in ufw."
+  ufw allow "${port}/${protocol}" >/dev/null
 }
 
 show_first_peer_hint() {
@@ -192,6 +343,15 @@ show_first_peer_hint() {
   log "WireGuard is up."
   log "Peer config: ${SCRIPT_DIR}/config/peer_${first_peer}/peer_${first_peer}.conf"
   log "Show QR: bash ${SCRIPT_DIR}/show-peer.sh ${first_peer}"
+
+  if [[ "${INSTALL_PANEL}" == "true" ]]; then
+    log "Panel: http://${SERVER_URL}:${PANEL_PORT}"
+    if [[ -n "${PANEL_PASSWORD_OUTPUT}" ]]; then
+      log "Panel password: ${PANEL_PASSWORD_OUTPUT}"
+    else
+      log "Panel password: unchanged"
+    fi
+  fi
 }
 
 ensure_root "$@"
@@ -208,6 +368,12 @@ LOG_CONFS="true"
 INSTALL_DOCKER="false"
 PUID_VALUE="0"
 PGID_VALUE="0"
+INSTALL_PANEL="false"
+PANEL_PORT="51821"
+PANEL_PASSWORD=""
+PANEL_PASSWORD_HASH=""
+PANEL_PASSWORD_OUTPUT=""
+PANEL_SECRET_KEY=""
 COMPOSE_CMD=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -252,6 +418,18 @@ while [[ "$#" -gt 0 ]]; do
       PGID_VALUE="${2:-}"
       shift 2
       ;;
+    --with-panel)
+      INSTALL_PANEL="true"
+      shift
+      ;;
+    --panel-port)
+      PANEL_PORT="${2:-}"
+      shift 2
+      ;;
+    --panel-password)
+      PANEL_PASSWORD="${2:-}"
+      shift 2
+      ;;
     --install-docker)
       INSTALL_DOCKER="true"
       shift
@@ -279,5 +457,10 @@ log "Pulling the WireGuard image."
 log "Starting the WireGuard container."
 "${COMPOSE_CMD[@]}" up -d
 
-maybe_open_ufw_port
+maybe_open_ufw_port "${SERVER_PORT}" udp
+
+if [[ "${INSTALL_PANEL}" == "true" ]]; then
+  install_web_panel
+fi
+
 show_first_peer_hint

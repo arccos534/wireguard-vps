@@ -1,0 +1,368 @@
+:root {
+  --bg: #08131f;
+  --panel: rgba(10, 22, 35, 0.78);
+  --panel-strong: rgba(8, 17, 28, 0.92);
+  --line: rgba(255, 255, 255, 0.09);
+  --text: #f4f6f8;
+  --muted: #9ab1c3;
+  --accent: #68e1fd;
+  --accent-strong: #1fb7d7;
+  --warm: #ffb84d;
+  --danger: #ff6b6b;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  --radius: 22px;
+  --radius-sm: 16px;
+  --shell: min(1180px, calc(100vw - 32px));
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-heading: "Space Grotesk", "Aptos", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(104, 225, 253, 0.14), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(255, 184, 77, 0.12), transparent 34%),
+    linear-gradient(160deg, #050b12 0%, #091523 52%, #071827 100%);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+.backdrop {
+  position: fixed;
+  inset: auto auto 0 0;
+  pointer-events: none;
+  filter: blur(70px);
+  opacity: 0.55;
+}
+
+.backdrop-a {
+  width: 28rem;
+  height: 28rem;
+  top: -6rem;
+  left: -6rem;
+  background: rgba(104, 225, 253, 0.16);
+}
+
+.backdrop-b {
+  width: 24rem;
+  height: 24rem;
+  right: -4rem;
+  bottom: -4rem;
+  background: rgba(255, 184, 77, 0.16);
+}
+
+.shell {
+  position: relative;
+  width: var(--shell);
+  margin: 0 auto;
+  padding: 28px 0 48px;
+}
+
+.flash-stack {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.flash {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px 18px;
+  backdrop-filter: blur(20px);
+  background: rgba(8, 17, 28, 0.86);
+  box-shadow: var(--shadow);
+}
+
+.flash-success {
+  border-color: rgba(104, 225, 253, 0.28);
+}
+
+.flash-error {
+  border-color: rgba(255, 107, 107, 0.34);
+}
+
+.hero-card,
+.glass-card,
+.peer-card,
+.login-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(22px);
+}
+
+.hero-card {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 28px;
+  margin-bottom: 20px;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.glass-card {
+  padding: 22px;
+}
+
+.peer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.peer-card {
+  padding: 22px;
+}
+
+.peer-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.eyebrow,
+.card-kicker {
+  margin: 0 0 10px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.74rem;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-heading);
+  line-height: 0.98;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  max-width: 14ch;
+}
+
+h2 {
+  font-size: clamp(1.4rem, 2vw, 2rem);
+}
+
+h3 {
+  font-size: 1.4rem;
+}
+
+.lede,
+.hint {
+  color: var(--muted);
+}
+
+.lede {
+  max-width: 56ch;
+  margin: 14px 0 0;
+  line-height: 1.6;
+}
+
+.hint {
+  margin: 12px 0 0;
+  font-size: 0.94rem;
+}
+
+.stat-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stat-line:last-child {
+  border-bottom: 0;
+}
+
+.stat-line span {
+  color: var(--muted);
+}
+
+.status-running {
+  color: var(--accent);
+}
+
+.status-exited,
+.status-dead {
+  color: var(--danger);
+}
+
+.stack-form {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 14px 16px;
+  font: inherit;
+}
+
+.field input:focus {
+  outline: 2px solid rgba(104, 225, 253, 0.34);
+  border-color: rgba(104, 225, 253, 0.3);
+}
+
+.button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 18px;
+  text-decoration: none;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+.button-primary {
+  color: #031019;
+  background: linear-gradient(135deg, var(--accent) 0%, #a6f2ff 100%);
+}
+
+.button-secondary {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.button-danger {
+  color: #250404;
+  background: linear-gradient(135deg, #ff9d9d 0%, var(--danger) 100%);
+}
+
+.action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.section-head {
+  margin-bottom: 16px;
+}
+
+.config-panel {
+  margin-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 14px;
+}
+
+.config-panel summary {
+  cursor: pointer;
+  color: var(--warm);
+  font-weight: 700;
+}
+
+.config-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+pre {
+  margin: 0;
+  overflow: auto;
+  padding: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #d8f6ff;
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.qr-box {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.qr-box img {
+  width: min(100%, 260px);
+  height: auto;
+}
+
+.login-wrap {
+  min-height: calc(100vh - 76px);
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  width: min(540px, 100%);
+  padding: 30px;
+}
+
+@media (max-width: 980px) {
+  .meta-grid,
+  .peer-grid,
+  .config-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    width: min(100vw - 20px, 100%);
+    padding-top: 16px;
+  }
+
+  .hero-card,
+  .peer-topline {
+    flex-direction: column;
+  }
+
+  .glass-card,
+  .peer-card,
+  .hero-card,
+  .login-card {
+    padding: 18px;
+  }
+}

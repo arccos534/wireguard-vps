@@ -1,2 +1,5 @@
 .env
+.panel.env
+.panel-venv/
+.panel.lock
 config/
