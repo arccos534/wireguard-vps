@@ -3,13 +3,14 @@
 set -euo pipefail
 
 SELF_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${SELF_PATH}")" && pwd)"
 
 log() {
-  printf '[wg-easy-install] %s\n' "$*"
+  printf '[openvpn-install] %s\n' "$*"
 }
 
 die() {
-  printf '[wg-easy-install] ERROR: %s\n' "$*" >&2
+  printf '[openvpn-install] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
@@ -19,16 +20,13 @@ Usage:
   bash install.sh --host <public-ip-or-domain> [options]
 
 Options:
-  --host <value>              Required. Public IP or domain clients will use.
-  --wg-port <value>           WireGuard UDP port. Default: 443
-  --ui-port <value>           Web UI TCP port. Default: 51821
-  --wg-device <value>         Host network interface for NAT. Default: ens3
-  --dns <value>               Client DNS servers. Default: 1.1.1.1,1.0.0.1
-  --allowed-ips <value>       Allowed IPs for new clients. Default: 0.0.0.0/0
-  --mtu <value>               Client MTU. Default: 1280
-  --tz <value>                Timezone. Default: detected system timezone or UTC
-  --install-docker            Install Docker on Ubuntu/Debian if missing.
-  --help                      Show this help.
+  --host <value>           Required. Public IP or domain clients should use.
+  --client <value>         Initial client name. Default: phone
+  --port <value>           OpenVPN UDP port. Default: 1194
+  --dns <value>            Comma-separated DNS servers. Default: 1.1.1.1,1.0.0.1
+  --subnet <value>         VPN subnet in CIDR. Default: 10.8.0.0/24
+  --mtu <value>            OpenVPN mssfix value. Default: 1360
+  --help                   Show this help.
 EOF
 }
 
@@ -38,113 +36,27 @@ ensure_root() {
   fi
 
   if command -v sudo >/dev/null 2>&1; then
-    exec sudo -E bash "$SELF_PATH" "$@"
+    exec sudo -E bash "${SELF_PATH}" "$@"
   fi
 
   die "Run this script as root or install sudo."
 }
 
-detect_timezone() {
-  if [[ -f /etc/timezone ]]; then
-    tr -d '\n' </etc/timezone
-    return
-  fi
-
-  if command -v timedatectl >/dev/null 2>&1; then
-    local tz
-    tz="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
-    if [[ -n "${tz}" ]]; then
-      printf '%s' "${tz}"
-      return
-    fi
-  fi
-
-  printf 'UTC'
+ensure_packages() {
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y openvpn easy-rsa iptables openssl
 }
 
-load_os_release() {
-  [[ -r /etc/os-release ]] || die "Cannot detect the operating system."
-  # shellcheck disable=SC1091
-  . /etc/os-release
+detect_default_interface() {
+  ip route show default | awk '/default/ {print $5; exit}'
 }
 
-install_docker_official() {
-  load_os_release
-
-  case "${ID}" in
-    ubuntu)
-      log "Installing Docker from Docker's official Ubuntu repository."
-      apt-get update
-      apt-get install -y ca-certificates curl
-      install -m 0755 -d /etc/apt/keyrings
-      curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-      chmod a+r /etc/apt/keyrings/docker.asc
-      cat >/etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: ${UBUNTU_CODENAME:-$VERSION_CODENAME}
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-      apt-get update
-      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-      ;;
-    debian)
-      log "Installing Docker from Docker's official Debian repository."
-      apt-get update
-      apt-get install -y ca-certificates curl
-      install -m 0755 -d /etc/apt/keyrings
-      curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-      chmod a+r /etc/apt/keyrings/docker.asc
-      cat >/etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/debian
-Suites: ${VERSION_CODENAME}
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-      apt-get update
-      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-      ;;
-    *)
-      die "Automatic Docker installation is supported only on Ubuntu/Debian."
-      ;;
-  esac
-
-  systemctl enable --now docker
-}
-
-ensure_docker_and_compose() {
-  if ! command -v docker >/dev/null 2>&1; then
-    if [[ "${INSTALL_DOCKER}" == "true" ]]; then
-      install_docker_official
-    else
-      die "Docker is not installed. Re-run with --install-docker or install Docker first."
-    fi
-  fi
-
-  if docker compose version >/dev/null 2>&1; then
-    COMPOSE_CMD=(docker compose)
-    return
-  fi
-
-  if command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_CMD=(docker-compose)
-    return
-  fi
-
-  die "Docker Compose is not available. Install docker-compose-plugin or docker-compose."
-}
-
-ensure_host_networking() {
-  local sysctl_path="/etc/sysctl.d/99-wg-easy.conf"
-
-  log "Enabling host sysctls required by WireGuard."
-  cat >"${sysctl_path}" <<'EOF'
+ensure_sysctls() {
+  cat >/etc/sysctl.d/99-openvpn.conf <<'EOF'
 net.ipv4.ip_forward = 1
-net.ipv4.conf.all.src_valid_mark = 1
 EOF
-  sysctl --load "${sysctl_path}" >/dev/null
+  sysctl --load /etc/sysctl.d/99-openvpn.conf >/dev/null
 }
 
 maybe_open_ufw_port() {
@@ -161,125 +73,246 @@ maybe_open_ufw_port() {
     return
   fi
 
-  log "Opening ${port}/${protocol} in ufw."
   ufw allow "${port}/${protocol}" >/dev/null
 }
 
-stop_legacy_panel_service() {
-  if systemctl list-unit-files | grep -q '^wireguard-panel\.service'; then
-    log "Disabling the old custom wireguard-panel service."
-    systemctl disable --now wireguard-panel >/dev/null 2>&1 || true
+stop_old_vpn_stacks() {
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f wg-easy wireguard >/dev/null 2>&1 || true
+  fi
+
+  systemctl disable --now wg-quick@wg0 >/dev/null 2>&1 || true
+  systemctl disable --now wireguard-panel >/dev/null 2>&1 || true
+}
+
+setup_easy_rsa_tree() {
+  if [[ ! -d /etc/openvpn/easy-rsa ]]; then
+    install -d -m 700 /etc/openvpn/easy-rsa
+    cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
   fi
 }
 
-backup_legacy_data() {
-  local timestamp
-  timestamp="$(date +%Y%m%d%H%M%S)"
+init_pki_if_needed() {
+  cd /etc/openvpn/easy-rsa
 
-  if [[ -d "${SCRIPT_DIR}/data" ]]; then
-    mv "${SCRIPT_DIR}/data" "${SCRIPT_DIR}/data.backup.${timestamp}"
-    log "Backed up previous wg-easy data directory."
+  if [[ ! -d pki ]]; then
+    ./easyrsa --batch init-pki
   fi
 
-  if [[ -d "${SCRIPT_DIR}/config" ]]; then
-    mv "${SCRIPT_DIR}/config" "${SCRIPT_DIR}/config.backup.${timestamp}"
-    log "Backed up legacy config directory."
+  if [[ ! -f pki/ca.crt ]]; then
+    EASYRSA_REQ_CN="OpenVPN-CA" ./easyrsa --batch build-ca nopass
   fi
 
-  if [[ -f "${SCRIPT_DIR}/.panel.env" ]]; then
-    mv "${SCRIPT_DIR}/.panel.env" "${SCRIPT_DIR}/.panel.env.backup.${timestamp}"
-    log "Backed up legacy panel environment."
+  if [[ ! -f pki/issued/server.crt ]]; then
+    EASYRSA_REQ_CN="server" ./easyrsa --batch build-server-full server nopass
   fi
 
-  if [[ -d "${SCRIPT_DIR}/.panel-venv" ]]; then
-    mv "${SCRIPT_DIR}/.panel-venv" "${SCRIPT_DIR}/.panel-venv.backup.${timestamp}"
-    log "Backed up legacy panel virtual environment."
+  if [[ ! -f pki/dh.pem ]]; then
+    ./easyrsa --batch gen-dh
+  fi
+
+  if [[ ! -f /etc/openvpn/server/tls-crypt.key ]]; then
+    install -d -m 700 /etc/openvpn/server
+    openvpn --genkey --secret /etc/openvpn/server/tls-crypt.key
+  fi
+
+  ./easyrsa --batch gen-crl
+}
+
+build_client_if_needed() {
+  cd /etc/openvpn/easy-rsa
+
+  if [[ ! -f "pki/issued/${CLIENT_NAME}.crt" ]]; then
+    EASYRSA_REQ_CN="${CLIENT_NAME}" ./easyrsa --batch build-client-full "${CLIENT_NAME}" nopass
   fi
 }
 
-write_env_file() {
-  cat >"${SCRIPT_DIR}/.env" <<EOF
-TZ=${TZ_VALUE}
-WG_HOST=${WG_HOST}
-WG_PORT=${WG_PORT}
-UI_PORT=${UI_PORT}
-WG_DEVICE=${WG_DEVICE}
-WG_DNS=${WG_DNS}
-WG_ALLOWED_IPS=${WG_ALLOWED_IPS}
-WG_MTU=${WG_MTU}
+copy_server_materials() {
+  install -d -m 700 /etc/openvpn/server
+  cp /etc/openvpn/easy-rsa/pki/ca.crt /etc/openvpn/server/ca.crt
+  cp /etc/openvpn/easy-rsa/pki/issued/server.crt /etc/openvpn/server/server.crt
+  cp /etc/openvpn/easy-rsa/pki/private/server.key /etc/openvpn/server/server.key
+  cp /etc/openvpn/easy-rsa/pki/dh.pem /etc/openvpn/server/dh.pem
+  cp /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn/server/crl.pem
+  chmod 600 /etc/openvpn/server/server.key /etc/openvpn/server/tls-crypt.key /etc/openvpn/server/crl.pem
+}
+
+subnet_network() {
+  VPN_SUBNET_VALUE="${VPN_SUBNET}" python3 - <<'PY'
+import ipaddress
+import os
+
+net = ipaddress.ip_network(os.environ["VPN_SUBNET_VALUE"], strict=False)
+print(str(net.network_address))
+PY
+}
+
+subnet_netmask() {
+  VPN_SUBNET_VALUE="${VPN_SUBNET}" python3 - <<'PY'
+import ipaddress
+import os
+
+net = ipaddress.ip_network(os.environ["VPN_SUBNET_VALUE"], strict=False)
+print(str(net.netmask))
+PY
+}
+
+write_firewall_scripts() {
+  cat >/etc/openvpn/server/openvpn-up.sh <<EOF
+#!/usr/bin/env bash
+iptables -A FORWARD -i tun0 -j ACCEPT
+iptables -A FORWARD -o tun0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A POSTROUTING -s ${VPN_SUBNET} -o ${SERVER_INTERFACE} -j MASQUERADE
+iptables -t mangle -A FORWARD -i tun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${MSSFIX}
+iptables -t mangle -A FORWARD -o tun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${MSSFIX}
+EOF
+
+  cat >/etc/openvpn/server/openvpn-down.sh <<EOF
+#!/usr/bin/env bash
+iptables -D FORWARD -i tun0 -j ACCEPT
+iptables -D FORWARD -o tun0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -D POSTROUTING -s ${VPN_SUBNET} -o ${SERVER_INTERFACE} -j MASQUERADE
+iptables -t mangle -D FORWARD -i tun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${MSSFIX}
+iptables -t mangle -D FORWARD -o tun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${MSSFIX}
+EOF
+
+  chmod 700 /etc/openvpn/server/openvpn-up.sh /etc/openvpn/server/openvpn-down.sh
+}
+
+write_server_config() {
+  local network netmask dns_push
+  network="$(subnet_network)"
+  netmask="$(subnet_netmask)"
+
+  dns_push=""
+  IFS=',' read -r -a DNS_ARRAY <<<"${DNS_SERVERS}"
+  for dns in "${DNS_ARRAY[@]}"; do
+    dns_push="${dns_push}push \"dhcp-option DNS ${dns}\"\n"
+  done
+
+  cat >/etc/openvpn/server/server.conf <<EOF
+port ${OVPN_PORT}
+proto udp
+dev tun
+topology subnet
+server ${network} ${netmask}
+push "redirect-gateway def1 bypass-dhcp"
+${dns_push}keepalive 10 120
+persist-key
+persist-tun
+user nobody
+group nogroup
+script-security 2
+up /etc/openvpn/server/openvpn-up.sh
+down /etc/openvpn/server/openvpn-down.sh
+ca /etc/openvpn/server/ca.crt
+cert /etc/openvpn/server/server.crt
+key /etc/openvpn/server/server.key
+dh /etc/openvpn/server/dh.pem
+tls-crypt /etc/openvpn/server/tls-crypt.key
+crl-verify /etc/openvpn/server/crl.pem
+cipher AES-256-GCM
+ncp-ciphers AES-256-GCM:AES-128-GCM
+auth SHA256
+verb 3
+explicit-exit-notify 1
+mssfix ${MSSFIX}
+status /var/log/openvpn-status.log
 EOF
 }
 
-wait_for_wg_easy() {
-  local tries=0
-  while (( tries < 30 )); do
-    if docker inspect -f '{{.State.Status}}' wg-easy 2>/dev/null | grep -q '^running$'; then
-      return
-    fi
-    sleep 2
-    tries=$((tries + 1))
-  done
-
-  die "wg-easy did not reach running state in time."
+extract_cert_body() {
+  local file="$1"
+  awk 'BEGIN{flag=0} /BEGIN CERTIFICATE/{flag=1} flag{print} /END CERTIFICATE/{flag=0}' "${file}"
 }
-show_hints() {
-  log "wg-easy is up."
-  log "Web UI: http://${WG_HOST}:${UI_PORT}"
-  log "Login is disabled in this temporary setup."
-  log "Create clients in the UI and scan the QR from there."
+
+write_client_config() {
+  local client_dir client_cert client_key ca_cert tls_crypt
+  client_dir="${SCRIPT_DIR}/openvpn-clients/${CLIENT_NAME}"
+  install -d -m 700 "${client_dir}"
+
+  client_cert="$(extract_cert_body "/etc/openvpn/easy-rsa/pki/issued/${CLIENT_NAME}.crt")"
+  client_key="$(cat "/etc/openvpn/easy-rsa/pki/private/${CLIENT_NAME}.key")"
+  ca_cert="$(cat /etc/openvpn/easy-rsa/pki/ca.crt)"
+  tls_crypt="$(cat /etc/openvpn/server/tls-crypt.key)"
+
+  cat >"${client_dir}/${CLIENT_NAME}.ovpn" <<EOF
+client
+dev tun
+proto udp
+remote ${SERVER_HOST} ${OVPN_PORT}
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+auth SHA256
+cipher AES-256-GCM
+verb 3
+auth-nocache
+mssfix ${MSSFIX}
+
+<ca>
+${ca_cert}
+</ca>
+<cert>
+${client_cert}
+</cert>
+<key>
+${client_key}
+</key>
+<tls-crypt>
+${tls_crypt}
+</tls-crypt>
+EOF
+}
+
+restart_openvpn() {
+  systemctl enable --now openvpn-server@server
+  systemctl restart openvpn-server@server
+}
+
+show_result() {
+  log "OpenVPN server is up."
+  log "Client profile: ${SCRIPT_DIR}/openvpn-clients/${CLIENT_NAME}/${CLIENT_NAME}.ovpn"
+  log "Import that .ovpn file into OpenVPN Connect."
+  log "Check server status with: systemctl status openvpn-server@server --no-pager"
 }
 
 ensure_root "$@"
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${SELF_PATH}")" && pwd)"
-WG_HOST=""
-WG_PORT="443"
-UI_PORT="51821"
-WG_DEVICE="ens3"
-WG_DNS="1.1.1.1,1.0.0.1"
-WG_ALLOWED_IPS="0.0.0.0/0"
-WG_MTU="1280"
-TZ_VALUE="$(detect_timezone)"
-INSTALL_DOCKER="false"
-COMPOSE_CMD=()
+SERVER_HOST=""
+CLIENT_NAME="phone"
+OVPN_PORT="1194"
+DNS_SERVERS="1.1.1.1,1.0.0.1"
+VPN_SUBNET="10.8.0.0/24"
+MSSFIX="1360"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --host)
-      WG_HOST="${2:-}"
+      SERVER_HOST="${2:-}"
       shift 2
       ;;
-    --wg-port)
-      WG_PORT="${2:-}"
+    --client)
+      CLIENT_NAME="${2:-}"
       shift 2
       ;;
-    --ui-port)
-      UI_PORT="${2:-}"
-      shift 2
-      ;;
-    --wg-device)
-      WG_DEVICE="${2:-}"
+    --port)
+      OVPN_PORT="${2:-}"
       shift 2
       ;;
     --dns)
-      WG_DNS="${2:-}"
+      DNS_SERVERS="${2:-}"
       shift 2
       ;;
-    --allowed-ips)
-      WG_ALLOWED_IPS="${2:-}"
+    --subnet)
+      VPN_SUBNET="${2:-}"
       shift 2
       ;;
     --mtu)
-      WG_MTU="${2:-}"
+      MSSFIX="${2:-}"
       shift 2
-      ;;
-    --tz)
-      TZ_VALUE="${2:-}"
-      shift 2
-      ;;
-    --install-docker)
-      INSTALL_DOCKER="true"
-      shift
       ;;
     --help|-h)
       usage
@@ -291,26 +324,20 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-[[ -n "${WG_HOST}" ]] || die "--host is required."
+[[ -n "${SERVER_HOST}" ]] || die "--host is required."
+SERVER_INTERFACE="$(detect_default_interface)"
+[[ -n "${SERVER_INTERFACE}" ]] || die "Could not detect the default network interface."
 
-ensure_docker_and_compose
-ensure_host_networking
-stop_legacy_panel_service
-backup_legacy_data
-mkdir -p "${SCRIPT_DIR}/data"
-write_env_file
-
-log "Pulling the wg-easy image."
-"${COMPOSE_CMD[@]}" pull
-
-log "Stopping any previous containers from this stack."
-"${COMPOSE_CMD[@]}" down --remove-orphans >/dev/null 2>&1 || true
-
-log "Starting wg-easy."
-"${COMPOSE_CMD[@]}" up -d
-wait_for_wg_easy
-
-maybe_open_ufw_port "${WG_PORT}" udp
-maybe_open_ufw_port "${UI_PORT}" tcp
-
-show_hints
+stop_old_vpn_stacks
+ensure_packages
+ensure_sysctls
+setup_easy_rsa_tree
+init_pki_if_needed
+build_client_if_needed
+copy_server_materials
+write_firewall_scripts
+write_server_config
+write_client_config
+restart_openvpn
+maybe_open_ufw_port "${OVPN_PORT}" udp
+show_result
