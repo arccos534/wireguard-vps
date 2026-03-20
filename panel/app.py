@@ -94,6 +94,19 @@ def create_app() -> Flask:
             "panel_url": app.config["PANEL_URL"],
         }
 
+    @app.after_request
+    def add_security_headers(response: Response) -> Response:
+        response.headers.setdefault("Cache-Control", "no-store, private")
+        response.headers.setdefault("Pragma", "no-cache")
+
+        vary = response.headers.get("Vary", "")
+        vary_values = [item.strip() for item in vary.split(",") if item.strip()]
+        if "Cookie" not in vary_values:
+            vary_values.append("Cookie")
+            response.headers["Vary"] = ", ".join(vary_values)
+
+        return response
+
     @app.get("/health")
     def health() -> tuple[dict[str, str], int]:
         return {"status": "ok"}, 200
