@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ MANAGED_SERVER_LINES = (
     "PostDown = iptables -t mangle -D FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
     "PostDown = iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
 )
+CIDR_DUPLICATION_RE = re.compile(r"^(.+?)/(\d+)(?:/\d+)+$")
 
 
 class SyncError(RuntimeError):
@@ -124,6 +126,17 @@ def normalize_address(value: str) -> str:
     return f"{value}/32"
 
 
+def normalize_allowed_ips_value(value: str) -> str:
+    normalized_tokens: list[str] = []
+    for raw_token in value.split(","):
+        token = raw_token.strip()
+        match = CIDR_DUPLICATION_RE.match(token)
+        if match:
+            token = f"{match.group(1)}/{match.group(2)}"
+        normalized_tokens.append(token)
+    return ",".join(normalized_tokens)
+
+
 def build_client_config(source: Path, env_values: dict[str, str]) -> str:
     sections = parse_sections(source.read_text(encoding="utf-8-sig"))
     interface_private_key = require_section_value(sections, "Interface", "PrivateKey", source)
@@ -195,6 +208,12 @@ def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
             stripped.startswith("MTU =")
             or stripped in MANAGED_SERVER_LINES
         ):
+            continue
+
+        if not in_interface and stripped.startswith("AllowedIPs ="):
+            key, value = line.split("=", 1)
+            normalized_value = normalize_allowed_ips_value(value.strip())
+            output.append(f"{key.strip()} = {normalized_value}")
             continue
 
         output.append(line)
