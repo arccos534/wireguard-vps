@@ -22,7 +22,9 @@ Options:
   --server-url <value>        Required. Public IP or domain of the VPS.
   --server-port <value>       WireGuard UDP port. Default: 51820
   --peers <value>             Comma-separated device names. Default: phone
-  --peer-dns <value>          DNS for clients. Default: 1.1.1.1
+  --peer-dns <value>          DNS for clients. Default: 1.1.1.1,1.0.0.1
+  --client-mtu <value>        MTU for generated client configs. Default: 1280
+  --client-keepalive <value>  PersistentKeepalive for clients. Default: 25
   --internal-subnet <value>   Internal VPN subnet. Default: 10.13.13.0
   --allowed-ips <value>       Client routes. Default: 0.0.0.0/0
   --tz <value>                Timezone. Default: detected system timezone or UTC
@@ -132,6 +134,8 @@ EOF
 }
 
 ensure_python_for_panel() {
+  ensure_python_runtime
+
   if command -v python3 >/dev/null 2>&1; then
     local probe_dir
     probe_dir="$(mktemp -d)"
@@ -155,6 +159,24 @@ ensure_python_for_panel() {
   esac
 }
 
+ensure_python_runtime() {
+  if command -v python3 >/dev/null 2>&1; then
+    return
+  fi
+
+  load_os_release
+  case "${ID}" in
+    ubuntu|debian)
+      log "Installing Python 3 for WireGuard config syncing."
+      apt-get update
+      apt-get install -y python3
+      ;;
+    *)
+      die "Python 3 is required to normalize generated WireGuard configs."
+      ;;
+  esac
+}
+
 ensure_host_networking() {
   local sysctl_path="/etc/sysctl.d/99-wireguard-vps.conf"
 
@@ -163,6 +185,32 @@ ensure_host_networking() {
 net.ipv4.ip_forward = 1
 EOF
   sysctl --system >/dev/null
+}
+
+ensure_ufw_routed_traffic() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    return
+  fi
+
+  local ufw_status
+  ufw_status="$(ufw status 2>/dev/null | head -n 1 || true)"
+  if [[ "${ufw_status}" == *"inactive"* ]] || [[ -z "${ufw_status}" ]]; then
+    return
+  fi
+
+  if [[ -f /etc/default/ufw ]]; then
+    if grep -q '^DEFAULT_FORWARD_POLICY="ACCEPT"' /etc/default/ufw; then
+      :
+    elif grep -q '^DEFAULT_FORWARD_POLICY=' /etc/default/ufw; then
+      sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+    else
+      printf '\nDEFAULT_FORWARD_POLICY="ACCEPT"\n' >>/etc/default/ufw
+    fi
+  fi
+
+  log "Allowing routed traffic in ufw for WireGuard."
+  ufw default allow routed >/dev/null
+  ufw reload >/dev/null || true
 }
 
 generate_random_password() {
@@ -282,6 +330,12 @@ install_web_panel() {
   maybe_open_ufw_port "${PANEL_PORT}" tcp
 }
 
+sync_wireguard_configs() {
+  ensure_python_runtime
+  log "Normalizing generated WireGuard configs for mobile clients."
+  python3 "${SCRIPT_DIR}/wireguard_sync.py" sync --project-root "${SCRIPT_DIR}" --restart-container
+}
+
 ensure_docker_and_compose() {
   if ! command -v docker >/dev/null 2>&1; then
     if [[ "${INSTALL_DOCKER}" == "true" ]]; then
@@ -322,8 +376,11 @@ SERVERURL=${SERVER_URL}
 SERVERPORT=${SERVER_PORT}
 PEERS=${PEERS}
 PEERDNS=${PEER_DNS}
+CLIENT_MTU=${CLIENT_MTU}
+CLIENT_PERSISTENTKEEPALIVE=${CLIENT_PERSISTENT_KEEPALIVE}
 INTERNAL_SUBNET=${INTERNAL_SUBNET}
 ALLOWEDIPS=${ALLOWED_IPS}
+PERSISTENTKEEPALIVE_PEERS=${PERSISTENTKEEPALIVE_PEERS}
 LOG_CONFS=${LOG_CONFS}
 EOF
 }
@@ -370,9 +427,12 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${SELF_PATH}")" && pwd)"
 SERVER_URL=""
 SERVER_PORT="51820"
 PEERS="phone"
-PEER_DNS="1.1.1.1"
+PEER_DNS="1.1.1.1,1.0.0.1"
+CLIENT_MTU="1280"
+CLIENT_PERSISTENT_KEEPALIVE="25"
 INTERNAL_SUBNET="10.13.13.0"
 ALLOWED_IPS="0.0.0.0/0"
+PERSISTENTKEEPALIVE_PEERS="all"
 TZ_VALUE="$(detect_timezone)"
 LOG_CONFS="true"
 INSTALL_DOCKER="false"
@@ -402,6 +462,14 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --peer-dns)
       PEER_DNS="${2:-}"
+      shift 2
+      ;;
+    --client-mtu)
+      CLIENT_MTU="${2:-}"
+      shift 2
+      ;;
+    --client-keepalive)
+      CLIENT_PERSISTENT_KEEPALIVE="${2:-}"
       shift 2
       ;;
     --internal-subnet)
@@ -458,6 +526,7 @@ done
 validate_peers "${PEERS}"
 ensure_docker_and_compose
 ensure_host_networking
+ensure_ufw_routed_traffic
 
 mkdir -p "${SCRIPT_DIR}/config"
 write_env_file
@@ -467,6 +536,7 @@ log "Pulling the WireGuard image."
 
 log "Starting the WireGuard container."
 "${COMPOSE_CMD[@]}" up -d
+sync_wireguard_configs
 
 maybe_open_ufw_port "${SERVER_PORT}" udp
 

@@ -38,6 +38,7 @@ except ImportError:  # pragma: no cover - Windows fallback for local editing.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = PROJECT_ROOT / ".env"
 CONFIG_DIR = PROJECT_ROOT / "config"
+SYNC_SCRIPT_PATH = PROJECT_ROOT / "wireguard_sync.py"
 DELETED_DIR = CONFIG_DIR / "_deleted"
 LOCK_PATH = PROJECT_ROOT / ".panel.lock"
 WIREGUARD_CONTAINER = "wireguard"
@@ -50,8 +51,11 @@ ENV_ORDER = [
     "SERVERPORT",
     "PEERS",
     "PEERDNS",
+    "CLIENT_MTU",
+    "CLIENT_PERSISTENTKEEPALIVE",
     "INTERNAL_SUBNET",
     "ALLOWEDIPS",
+    "PERSISTENTKEEPALIVE_PEERS",
     "LOG_CONFS",
 ]
 _WINDOWS_LOCK = threading.Lock()
@@ -384,6 +388,32 @@ def run_compose(*args: str) -> None:
         raise PanelError(str(exc)) from exc
 
 
+def run_wireguard_sync(restart_container: bool = False) -> None:
+    python_command = shutil.which("python3") or shutil.which("python")
+    if not python_command:
+        raise PanelError("Python 3 is required to normalize WireGuard configs.")
+
+    command = [python_command, str(SYNC_SCRIPT_PATH), "sync", "--project-root", str(PROJECT_ROOT)]
+    if restart_container:
+        command.append("--restart-container")
+
+    try:
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        details = stderr or stdout or "Unknown WireGuard sync error."
+        raise PanelError(details) from exc
+    except OSError as exc:
+        raise PanelError(str(exc)) from exc
+
+
 @contextmanager
 def project_lock():
     LOCK_PATH.touch(exist_ok=True)
@@ -413,10 +443,11 @@ def add_peer_to_wireguard(peer_name: str) -> None:
 
         try:
             run_compose("up", "-d", "wireguard")
-            wait_for_peer_config(peer_name)
+            run_wireguard_sync(restart_container=True)
         except Exception:
             ENV_PATH.write_text(previous_text, encoding="utf-8")
             run_compose("up", "-d", "wireguard")
+            run_wireguard_sync(restart_container=True)
             raise
 
 
@@ -436,26 +467,14 @@ def remove_peer_from_wireguard(peer_name: str) -> None:
 
         try:
             run_compose("up", "-d", "wireguard")
+            run_wireguard_sync(restart_container=True)
         except Exception:
             ENV_PATH.write_text(previous_text, encoding="utf-8")
             run_compose("up", "-d", "wireguard")
+            run_wireguard_sync(restart_container=True)
             raise
 
         archive_peer_directory(peer_name)
-
-
-def wait_for_peer_config(peer_name: str, timeout_seconds: int = 20) -> None:
-    deadline = time.time() + timeout_seconds
-    config_path = peer_config_path(peer_name)
-
-    while time.time() < deadline:
-        if config_path.exists() and config_path.stat().st_size > 0:
-            return
-        time.sleep(1)
-
-    raise PanelError(
-        f"Peer '{peer_name}' was added, but its config file did not appear in time."
-    )
 
 
 def archive_peer_directory(peer_name: str) -> None:

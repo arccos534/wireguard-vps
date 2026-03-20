@@ -15,6 +15,7 @@ services:
       - PEERDNS=${PEERDNS}
       - INTERNAL_SUBNET=${INTERNAL_SUBNET}
       - ALLOWEDIPS=${ALLOWEDIPS}
+      - PERSISTENTKEEPALIVE_PEERS=${PERSISTENTKEEPALIVE_PEERS}
       - LOG_CONFS=${LOG_CONFS}
     volumes:
       - ./config:/config

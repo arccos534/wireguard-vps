@@ -1,6 +1,6 @@
 # WireGuard on VPS via Docker
 
-This stack runs `WireGuard` in a separate folder and only exposes `51820/udp`, so it should not conflict with a website already using `80/443`.
+This stack runs `WireGuard` in a separate folder and only exposes one UDP port, so it should not conflict with a website already using `80/443`.
 
 It can also install a lightweight web panel for peer management:
 
@@ -9,6 +9,14 @@ It can also install a lightweight web panel for peer management:
 - delete a peer
 - download the `.conf`
 - open a QR code for the `WireGuard` app
+
+The exported client profile is normalized after each change, so the panel now generates a mobile-friendly config with:
+
+- `Address = .../32`
+- no client `ListenPort`
+- `DNS = 1.1.1.1,1.0.0.1`
+- `MTU = 1280`
+- `PersistentKeepalive = 25`
 
 ## What you need
 
@@ -47,8 +55,9 @@ git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && 
 
 - `docker-compose.yml` - container definition
 - `.env.example` - variable reference
-- `install.sh` - writes `.env`, starts the container, and opens `51820/udp` in `ufw` if active
+- `install.sh` - writes `.env`, starts the container, normalizes configs, and opens the needed ports in `ufw`
 - `show-peer.sh` - prints the peer QR code and config path
+- `wireguard_sync.py` - rewrites generated configs into a stable client profile and patches the server tunnel config
 - `panel/` - Flask-based admin UI for peer management
 - `./config/` - generated server keys and client configs
 
@@ -74,6 +83,8 @@ cat ./config/peer_phone/peer_phone.conf
 ```
 
 Import that config into the `WireGuard` app on your phone or computer.
+
+The QR and `.conf` exported by the panel already include the mobile defaults above, so you should not need to manually tweak the tunnel on iPhone after scanning it.
 
 ## Web panel
 
@@ -107,7 +118,7 @@ docker compose up -d
 ## Notes
 
 - Keep the generated `./config` directory private: it contains private keys.
-- If your hosting provider has a cloud firewall, allow `51820/UDP` there too.
+- If your hosting provider has a cloud firewall, allow your chosen `SERVERPORT/UDP` there too.
 - If you expose the web panel to the internet, protect access with a strong password and ideally a provider firewall rule that only allows your own IP.
 - Docker's docs warn that published container ports can bypass some `ufw` expectations, so provider firewall rules are a good extra layer.
 - If `SERVERURL=auto` gives the wrong address, use the exact public IP instead.
