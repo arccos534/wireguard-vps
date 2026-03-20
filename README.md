@@ -1,124 +1,88 @@
-# WireGuard on VPS via Docker
+# wg-easy on VPS via Docker
 
-This stack runs `WireGuard` in a separate folder and only exposes one UDP port, so it should not conflict with a website already using `80/443`.
+This repo now uses `wg-easy` as the backend and admin panel. It replaces the earlier custom panel + `linuxserver/wireguard` flow with a simpler stack:
 
-It can also install a lightweight web panel for peer management:
+- `WireGuard` server
+- built-in web admin UI
+- QR generation inside the same product
+- built-in client creation and deletion
 
-- list current peers
-- create a peer by name
-- delete a peer
-- download the `.conf`
-- open a QR code for the `WireGuard` app
+## Why this switch
 
-The exported client profile is normalized after each change, so the panel now generates a mobile-friendly config with:
+The old stack became too fragile on this VPS: container startup, NAT rules, generated configs, and panel behavior all needed too many manual fixes.
 
-- `Address = .../32`
-- no client `ListenPort`
-- `DNS = 1.1.1.1,1.0.0.1`
-- `MTU = 1280`
-- `PersistentKeepalive = 25`
+`wg-easy` is purpose-built for exactly this use case, and the official docs cover:
 
-## What you need
+- unattended first-time setup
+- built-in admin password reset CLI
+- no-reverse-proxy setup with `INSECURE=true`
 
-- Public `IP` or domain of the `VPS`
-- Peer names for your devices, for example `phone,laptop`
+## One-command install
 
-You do not need to pre-generate `WireGuard` keys. They are created automatically on the server during first start.
-
-## One-command deploy
-
-After this repo is on GitHub, the server-side one-liner will look like this:
+If Docker is already installed:
 
 ```bash
-git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok
+git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --host YOUR_VPS_IP --password 'CHANGE_ME_NOW'
 ```
 
-If Docker is not installed yet and the server is `Ubuntu` or `Debian`, add `--install-docker`:
+If Docker is missing:
 
 ```bash
-git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok --install-docker
+git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --host YOUR_VPS_IP --password 'CHANGE_ME_NOW' --install-docker
 ```
 
-If you want the web panel too:
+For your current server the intended command is:
 
 ```bash
-git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok --with-panel --panel-password 'CHANGE_ME_NOW'
+cd /root/wireguard-vps
+git pull
+bash install.sh --host 138.124.88.205 --wg-port 443 --ui-port 51821 --password 'CHANGE_ME_NOW'
 ```
 
-Or, if Docker is missing:
+## What the installer does
 
-```bash
-git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok --install-docker --with-panel --panel-password 'CHANGE_ME_NOW'
-```
+- enables `net.ipv4.ip_forward=1`
+- writes `.env`
+- backs up the old custom `config/` and panel files
+- disables the old `wireguard-panel` systemd service
+- starts `wg-easy`
+- resets the admin password through the official `wg-easy` CLI
+- opens `WG_PORT/udp` and `UI_PORT/tcp` in `ufw` if `ufw` is active
 
-## Files
+## Admin UI
 
-- `docker-compose.yml` - container definition
-- `.env.example` - variable reference
-- `install.sh` - writes `.env`, starts the container, normalizes configs, and opens the needed ports in `ufw`
-- `show-peer.sh` - prints the peer QR code and config path
-- `wireguard_sync.py` - rewrites generated configs into a stable client profile and patches the server tunnel config
-- `panel/` - Flask-based admin UI for peer management
-- `./config/` - generated server keys and client configs
-
-## After install
-
-Check the running container:
-
-```bash
-docker compose ps
-docker exec -it wireguard wg show
-```
-
-Show the QR code for a device:
-
-```bash
-bash show-peer.sh phone
-```
-
-Or open the generated config file directly:
-
-```bash
-cat ./config/peer_phone/peer_phone.conf
-```
-
-Import that config into the `WireGuard` app on your phone or computer.
-
-The QR and `.conf` exported by the panel already include the mobile defaults above, so you should not need to manually tweak the tunnel on iPhone after scanning it. The stack keeps Docker's normal bridge networking and only publishes the chosen UDP port, which is safer for a VPS that is already serving a website over SSH and HTTP(S).
-
-## Web panel
-
-When installed with `--with-panel`, the panel runs as a `systemd` service on `51821/tcp` by default.
-
-Open it in the browser:
+Open:
 
 ```text
 http://YOUR_VPS_IP:51821
 ```
 
-Useful commands:
+Create clients directly in the `wg-easy` UI and scan the QR there.
+
+## Reset the admin password later
 
 ```bash
-systemctl status wireguard-panel
-journalctl -u wireguard-panel -n 100 --no-pager
+cd /root/wireguard-vps
+docker compose exec -it wg-easy cli db:admin:reset --password 'NEW_PASSWORD'
 ```
 
-If you do not pass `--panel-password`, the installer generates one and prints it once in the terminal.
+## Files
 
-## Add more devices later
-
-1. Edit `.env`
-2. Extend `PEERS`, for example `phone,laptop,tablet`
-3. Recreate the container:
-
-```bash
-docker compose up -d
-```
+- `docker-compose.yml` - `wg-easy` stack
+- `.env.example` - variable reference
+- `install.sh` - install/update entry point
+- `show-peer.sh` - quick reminder helper for the new UI flow
+- `reset-admin-password.sh` - helper for changing the admin password
+- `data/` - `wg-easy` persistent state
 
 ## Notes
 
-- Keep the generated `./config` directory private: it contains private keys.
-- If your hosting provider has a cloud firewall, allow your chosen `SERVERPORT/UDP` there too.
-- If you expose the web panel to the internet, protect access with a strong password and ideally a provider firewall rule that only allows your own IP.
-- Docker's docs warn that published container ports can bypass some `ufw` expectations, so provider firewall rules are a good extra layer.
-- If `SERVERURL=auto` gives the wrong address, use the exact public IP instead.
+- `443/udp` does not conflict with a website on `443/tcp`.
+- The UI is exposed with `INSECURE=true`, which matches the official no-reverse-proxy docs. Restrict access with provider firewall rules if you can.
+- Existing clients from the old stack should be considered obsolete. Recreate them in `wg-easy`.
+
+Sources:
+- https://github.com/wg-easy/wg-easy
+- https://wg-easy.github.io/wg-easy/latest/advanced/config/unattended-setup/
+- https://wg-easy.github.io/wg-easy/latest/guides/cli/
+- https://wg-easy.github.io/wg-easy/latest/examples/tutorials/reverse-proxyless/

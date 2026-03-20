@@ -2,19 +2,16 @@
 
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  printf 'Usage: bash show-peer.sh <peer-name>\n' >&2
-  exit 1
-fi
-
-PEER_NAME="$1"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PEER_CONF="${SCRIPT_DIR}/config/peer_${PEER_NAME}/peer_${PEER_NAME}.conf"
 
-if [[ ! -f "${PEER_CONF}" ]]; then
-  printf 'Peer config not found: %s\n' "${PEER_CONF}" >&2
+if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
+  printf 'Missing %s/.env\n' "${SCRIPT_DIR}" >&2
   exit 1
 fi
 
-printf 'Config file: %s\n' "${PEER_CONF}"
-docker exec -it wireguard /app/show-peer "${PEER_NAME}"
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/.env"
+
+printf 'wg-easy manages peers in the web UI.\n'
+printf 'Open: http://%s:%s\n' "${WG_HOST}" "${UI_PORT}"
+printf 'Create the client there and scan the QR from the browser.\n'

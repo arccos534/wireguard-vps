@@ -1,27 +1,28 @@
 services:
-  wireguard:
-    image: lscr.io/linuxserver/wireguard:latest
-    container_name: wireguard
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
       - TZ=${TZ}
-      - SERVERURL=${SERVERURL}
-      - SERVERPORT=${SERVERPORT}
-      - PEERS=${PEERS}
-      - PEERDNS=${PEERDNS}
-      - INTERNAL_SUBNET=${INTERNAL_SUBNET}
-      - ALLOWEDIPS=${ALLOWEDIPS}
-      - PERSISTENTKEEPALIVE_PEERS=${PERSISTENTKEEPALIVE_PEERS}
-      - LOG_CONFS=${LOG_CONFS}
+      - INSECURE=true
+      - INIT_ENABLED=true
+      - INIT_USERNAME=${INIT_USERNAME}
+      - INIT_PASSWORD=${INIT_PASSWORD}
+      - INIT_HOST=${WG_HOST}
+      - INIT_PORT=${WG_PORT}
+      - INIT_DNS=${WG_DNS}
+      - INIT_ALLOWED_IPS=${WG_ALLOWED_IPS}
+      - DISABLE_IPV6=true
     volumes:
-      - ./config:/config
+      - ./data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
     ports:
-      - "${SERVERPORT}:51820/udp"
+      - "${WG_PORT}:51820/udp"
+      - "${UI_PORT}:51821/tcp"
     sysctls:
+      - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-    restart: unless-stopped
