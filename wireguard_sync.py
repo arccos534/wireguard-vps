@@ -137,24 +137,6 @@ def normalize_allowed_ips_value(value: str) -> str:
     return ",".join(normalized_tokens)
 
 
-def detect_default_interface() -> str:
-    try:
-        result = subprocess.run(
-            ["ip", "-o", "route", "show", "to", "default"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise SyncError("Could not detect the default network interface.") from exc
-
-    for token_index, token in enumerate(result.stdout.split()):
-        if token == "dev" and token_index + 1 < len(result.stdout.split()):
-            return result.stdout.split()[token_index + 1]
-
-    raise SyncError("Could not parse the default network interface from 'ip route'.")
-
-
 def build_client_config(source: Path, env_values: dict[str, str]) -> str:
     sections = parse_sections(source.read_text(encoding="utf-8-sig"))
     interface_private_key = require_section_value(sections, "Interface", "PrivateKey", source)
@@ -204,7 +186,6 @@ def normalize_peer_configs(project_root: Path, env_values: dict[str, str], peer_
 def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
     config_path = project_root / SERVER_CONFIG_RELATIVE
     client_mtu = env_values.get("CLIENT_MTU", DEFAULT_CLIENT_MTU)
-    default_interface = detect_default_interface()
     lines = config_path.read_text(encoding="utf-8-sig").splitlines()
     output: list[str] = []
     in_interface = False
@@ -233,24 +214,6 @@ def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
             key, value = line.split("=", 1)
             normalized_value = normalize_allowed_ips_value(value.strip())
             output.append(f"{key.strip()} = {normalized_value}")
-            continue
-
-        if in_interface and "-t nat -A POSTROUTING -o eth+ -j MASQUERADE" in line:
-            output.append(
-                line.replace(
-                    "-t nat -A POSTROUTING -o eth+ -j MASQUERADE",
-                    f"-t nat -A POSTROUTING -o {default_interface} -j MASQUERADE",
-                )
-            )
-            continue
-
-        if in_interface and "-t nat -D POSTROUTING -o eth+ -j MASQUERADE" in line:
-            output.append(
-                line.replace(
-                    "-t nat -D POSTROUTING -o eth+ -j MASQUERADE",
-                    f"-t nat -D POSTROUTING -o {default_interface} -j MASQUERADE",
-                )
-            )
             continue
 
         output.append(line)
