@@ -51,11 +51,11 @@ default_interface() {
 }
 
 default_server_ip() {
-  python3 - <<'PY'
+  VPN_SUBNET_VALUE="${VPN_SUBNET}" python3 - <<'PY'
 import ipaddress
 import os
 
-subnet = ipaddress.ip_network(os.environ["VPN_SUBNET"], strict=False)
+subnet = ipaddress.ip_network(os.environ["VPN_SUBNET_VALUE"], strict=False)
 print(f"{subnet.network_address + 1}/{subnet.prefixlen}")
 PY
 }
