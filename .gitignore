@@ -2,4 +2,6 @@
 .panel.env
 .panel-venv/
 .panel.lock
+__pycache__/
+*.pyc
 config/
