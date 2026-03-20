@@ -216,6 +216,26 @@ def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
             output.append(f"{key.strip()} = {normalized_value}")
             continue
 
+        if in_interface and "-t nat -A POSTROUTING" in line and "-j MASQUERADE" in line:
+            output.append(
+                re.sub(
+                    r"-t nat -A POSTROUTING -o \S+ -j MASQUERADE",
+                    "-t nat -A POSTROUTING -o eth+ -j MASQUERADE",
+                    line,
+                )
+            )
+            continue
+
+        if in_interface and "-t nat -D POSTROUTING" in line and "-j MASQUERADE" in line:
+            output.append(
+                re.sub(
+                    r"-t nat -D POSTROUTING -o \S+ -j MASQUERADE",
+                    "-t nat -D POSTROUTING -o eth+ -j MASQUERADE",
+                    line,
+                )
+            )
+            continue
+
         output.append(line)
 
     if in_interface:
