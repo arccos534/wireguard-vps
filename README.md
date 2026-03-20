@@ -78,3 +78,30 @@ Login is intentionally disabled in this temporary setup.
 Sources:
 - https://github.com/wg-easy/wg-easy
 - https://github.com/wg-easy/wg-easy/wiki
+
+## Native fallback
+
+If the Docker UI path still gives you trouble, use the native installer instead. It installs `WireGuard` directly on the host, avoids Docker networking entirely, and creates one mobile-friendly client config plus a terminal QR.
+
+For your current server:
+
+```bash
+cd /root/wireguard-vps
+git pull
+bash install-native.sh --host 138.124.88.205 --peer phone --wg-port 443
+```
+
+Then show the QR in the terminal:
+
+```bash
+cd /root/wireguard-vps
+bash show-native-qr.sh phone
+```
+
+Or import the generated file:
+
+```text
+/root/wireguard-vps/native-clients/phone/phone.conf
+```
+
+This native path is the recommended fallback when the Docker UI is not worth fighting anymore.
