@@ -2,6 +2,7 @@ services:
   wireguard:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wireguard
+    network_mode: host
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -20,10 +21,4 @@ services:
     volumes:
       - ./config:/config
       - /lib/modules:/lib/modules:ro
-    ports:
-      # WireGuard listens on 51820 inside the container.
-      # SERVERPORT only controls the external host port that clients connect to.
-      - "${SERVERPORT}:51820/udp"
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
     restart: unless-stopped

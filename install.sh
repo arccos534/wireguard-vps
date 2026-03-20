@@ -180,9 +180,10 @@ ensure_python_runtime() {
 ensure_host_networking() {
   local sysctl_path="/etc/sysctl.d/99-wireguard-vps.conf"
 
-  log "Enabling IPv4 forwarding on the host."
+  log "Enabling host sysctls required by WireGuard."
   cat >"${sysctl_path}" <<'EOF'
 net.ipv4.ip_forward = 1
+net.ipv4.conf.all.src_valid_mark = 1
 EOF
   sysctl --system >/dev/null
 }
