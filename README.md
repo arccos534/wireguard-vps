@@ -84,7 +84,7 @@ cat ./config/peer_phone/peer_phone.conf
 
 Import that config into the `WireGuard` app on your phone or computer.
 
-The QR and `.conf` exported by the panel already include the mobile defaults above, so you should not need to manually tweak the tunnel on iPhone after scanning it.
+The QR and `.conf` exported by the panel already include the mobile defaults above, so you should not need to manually tweak the tunnel on iPhone after scanning it. The stack keeps Docker's normal bridge networking and only publishes the chosen UDP port, which is safer for a VPS that is already serving a website over SSH and HTTP(S).
 
 ## Web panel
 

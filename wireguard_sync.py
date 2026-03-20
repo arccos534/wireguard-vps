@@ -173,7 +173,6 @@ def normalize_peer_configs(project_root: Path, env_values: dict[str, str], peer_
 def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
     config_path = project_root / SERVER_CONFIG_RELATIVE
     client_mtu = env_values.get("CLIENT_MTU", DEFAULT_CLIENT_MTU)
-    server_port = env_values["SERVERPORT"]
     lines = config_path.read_text(encoding="utf-8-sig").splitlines()
     output: list[str] = []
     in_interface = False
@@ -193,12 +192,9 @@ def patch_server_config(project_root: Path, env_values: dict[str, str]) -> None:
             continue
 
         if in_interface and (
-            stripped.startswith("ListenPort =")
-            or stripped.startswith("MTU =")
+            stripped.startswith("MTU =")
             or stripped in MANAGED_SERVER_LINES
         ):
-            if stripped.startswith("ListenPort ="):
-                output.append(f"ListenPort = {server_port}")
             continue
 
         output.append(line)
