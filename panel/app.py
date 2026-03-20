@@ -57,7 +57,7 @@ ENV_ORDER = [
 _WINDOWS_LOCK = threading.Lock()
 
 
-@dataclass(slots=True)
+@dataclass
 class PeerInfo:
     name: str
     has_config: bool
@@ -112,7 +112,7 @@ def create_app() -> Flask:
         return {"status": "ok"}, 200
 
     @app.route("/login", methods=["GET", "POST"])
-    def login() -> Response | str:
+    def login() -> Response:
         if request.method == "POST":
             validate_csrf(request.form.get("csrf_token", ""))
             password = request.form.get("password", "")
