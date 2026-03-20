@@ -155,6 +155,16 @@ ensure_python_for_panel() {
   esac
 }
 
+ensure_host_networking() {
+  local sysctl_path="/etc/sysctl.d/99-wireguard-vps.conf"
+
+  log "Enabling IPv4 forwarding on the host."
+  cat >"${sysctl_path}" <<'EOF'
+net.ipv4.ip_forward = 1
+EOF
+  sysctl --system >/dev/null
+}
+
 generate_random_password() {
   python3 - <<'PY'
 import secrets
@@ -447,6 +457,7 @@ done
 [[ -n "${SERVER_URL}" ]] || die "--server-url is required."
 validate_peers "${PEERS}"
 ensure_docker_and_compose
+ensure_host_networking
 
 mkdir -p "${SCRIPT_DIR}/config"
 write_env_file
