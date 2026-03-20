@@ -14,13 +14,13 @@ You do not need to pre-generate `WireGuard` keys. They are created automatically
 After this repo is on GitHub, the server-side one-liner will look like this:
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok
+git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok
 ```
 
 If Docker is not installed yet and the server is `Ubuntu` or `Debian`, add `--install-docker`:
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok --install-docker
+git clone https://github.com/arccos534/wireguard-vps.git /root/wireguard-vps && cd /root/wireguard-vps && bash install.sh --server-url YOUR_VPS_IP --peers phone,laptop --tz Asia/Vladivostok --install-docker
 ```
 
 ## Files
