@@ -15,3 +15,4 @@ fi
 printf 'wg-easy manages peers in the web UI.\n'
 printf 'Open: http://%s:%s\n' "${WG_HOST}" "${UI_PORT}"
 printf 'Create the client there and scan the QR from the browser.\n'
+printf 'Login is disabled in the current temporary setup.\n'

@@ -22,10 +22,10 @@ Options:
   --host <value>              Required. Public IP or domain clients will use.
   --wg-port <value>           WireGuard UDP port. Default: 443
   --ui-port <value>           Web UI TCP port. Default: 51821
-  --username <value>          Admin username. Default: admin
-  --password <value>          Admin password for wg-easy.
+  --wg-device <value>         Host network interface for NAT. Default: ens3
   --dns <value>               Client DNS servers. Default: 1.1.1.1,1.0.0.1
   --allowed-ips <value>       Allowed IPs for new clients. Default: 0.0.0.0/0
+  --mtu <value>               Client MTU. Default: 1280
   --tz <value>                Timezone. Default: detected system timezone or UTC
   --install-docker            Install Docker on Ubuntu/Debian if missing.
   --help                      Show this help.
@@ -136,16 +136,6 @@ ensure_docker_and_compose() {
   die "Docker Compose is not available. Install docker-compose-plugin or docker-compose."
 }
 
-generate_random_password() {
-  python3 - <<'PY'
-import secrets
-import string
-
-alphabet = string.ascii_letters + string.digits
-print("".join(secrets.choice(alphabet) for _ in range(22)))
-PY
-}
-
 ensure_host_networking() {
   local sysctl_path="/etc/sysctl.d/99-wg-easy.conf"
 
@@ -186,6 +176,11 @@ backup_legacy_data() {
   local timestamp
   timestamp="$(date +%Y%m%d%H%M%S)"
 
+  if [[ -d "${SCRIPT_DIR}/data" ]]; then
+    mv "${SCRIPT_DIR}/data" "${SCRIPT_DIR}/data.backup.${timestamp}"
+    log "Backed up previous wg-easy data directory."
+  fi
+
   if [[ -d "${SCRIPT_DIR}/config" ]]; then
     mv "${SCRIPT_DIR}/config" "${SCRIPT_DIR}/config.backup.${timestamp}"
     log "Backed up legacy config directory."
@@ -208,10 +203,10 @@ TZ=${TZ_VALUE}
 WG_HOST=${WG_HOST}
 WG_PORT=${WG_PORT}
 UI_PORT=${UI_PORT}
-INIT_USERNAME=${INIT_USERNAME}
-INIT_PASSWORD=${INIT_PASSWORD}
+WG_DEVICE=${WG_DEVICE}
 WG_DNS=${WG_DNS}
 WG_ALLOWED_IPS=${WG_ALLOWED_IPS}
+WG_MTU=${WG_MTU}
 EOF
 }
 
@@ -227,26 +222,10 @@ wait_for_wg_easy() {
 
   die "wg-easy did not reach running state in time."
 }
-
-reset_admin_password() {
-  log "Ensuring the admin password is set."
-  local tries=0
-  while (( tries < 20 )); do
-    if "${COMPOSE_CMD[@]}" exec -T wg-easy cli db:admin:reset --password "${INIT_PASSWORD}" >/dev/null 2>&1; then
-      return
-    fi
-    sleep 2
-    tries=$((tries + 1))
-  done
-
-  die "wg-easy started, but the admin password reset CLI did not become ready in time."
-}
-
 show_hints() {
   log "wg-easy is up."
-  log "Admin UI: http://${WG_HOST}:${UI_PORT}"
-  log "Admin username: ${INIT_USERNAME}"
-  log "Admin password: ${INIT_PASSWORD}"
+  log "Web UI: http://${WG_HOST}:${UI_PORT}"
+  log "Login is disabled in this temporary setup."
   log "Create clients in the UI and scan the QR from there."
 }
 
@@ -256,10 +235,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${SELF_PATH}")" && pwd)"
 WG_HOST=""
 WG_PORT="443"
 UI_PORT="51821"
-INIT_USERNAME="admin"
-INIT_PASSWORD=""
+WG_DEVICE="ens3"
 WG_DNS="1.1.1.1,1.0.0.1"
 WG_ALLOWED_IPS="0.0.0.0/0"
+WG_MTU="1280"
 TZ_VALUE="$(detect_timezone)"
 INSTALL_DOCKER="false"
 COMPOSE_CMD=()
@@ -278,12 +257,8 @@ while [[ "$#" -gt 0 ]]; do
       UI_PORT="${2:-}"
       shift 2
       ;;
-    --username)
-      INIT_USERNAME="${2:-}"
-      shift 2
-      ;;
-    --password)
-      INIT_PASSWORD="${2:-}"
+    --wg-device)
+      WG_DEVICE="${2:-}"
       shift 2
       ;;
     --dns)
@@ -292,6 +267,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --allowed-ips)
       WG_ALLOWED_IPS="${2:-}"
+      shift 2
+      ;;
+    --mtu)
+      WG_MTU="${2:-}"
       shift 2
       ;;
     --tz)
@@ -313,7 +292,6 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ -n "${WG_HOST}" ]] || die "--host is required."
-[[ -n "${INIT_PASSWORD}" ]] || INIT_PASSWORD="$(generate_random_password)"
 
 ensure_docker_and_compose
 ensure_host_networking
@@ -331,7 +309,6 @@ log "Stopping any previous containers from this stack."
 log "Starting wg-easy."
 "${COMPOSE_CMD[@]}" up -d
 wait_for_wg_easy
-reset_admin_password
 
 maybe_open_ufw_port "${WG_PORT}" udp
 maybe_open_ufw_port "${UI_PORT}" tcp

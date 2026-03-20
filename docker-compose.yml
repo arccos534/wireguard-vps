@@ -1,22 +1,21 @@
 services:
   wg-easy:
-    image: ghcr.io/wg-easy/wg-easy:15
+    image: ghcr.io/wg-easy/wg-easy:14
     container_name: wg-easy
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
     environment:
-      - TZ=${TZ}
-      - INSECURE=true
-      - INIT_ENABLED=true
-      - INIT_USERNAME=${INIT_USERNAME}
-      - INIT_PASSWORD=${INIT_PASSWORD}
-      - INIT_HOST=${WG_HOST}
-      - INIT_PORT=${WG_PORT}
-      - INIT_DNS=${WG_DNS}
-      - INIT_ALLOWED_IPS=${WG_ALLOWED_IPS}
-      - DISABLE_IPV6=true
+      TZ: ${TZ}
+      WG_HOST: ${WG_HOST}
+      WG_PORT: ${WG_PORT}
+      PORT: ${UI_PORT}
+      WG_DEVICE: ${WG_DEVICE}
+      WG_DEFAULT_DNS: ${WG_DNS}
+      WG_ALLOWED_IPS: ${WG_ALLOWED_IPS}
+      WG_PERSISTENT_KEEPALIVE: "25"
+      WG_MTU: ${WG_MTU}
     volumes:
       - ./data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
