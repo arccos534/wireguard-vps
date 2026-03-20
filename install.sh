@@ -185,7 +185,7 @@ ensure_host_networking() {
 net.ipv4.ip_forward = 1
 net.ipv4.conf.all.src_valid_mark = 1
 EOF
-  sysctl --system >/dev/null
+  sysctl --load "${sysctl_path}" >/dev/null
 }
 
 ensure_ufw_routed_traffic() {
@@ -335,6 +335,16 @@ sync_wireguard_configs() {
   ensure_python_runtime
   log "Normalizing generated WireGuard configs for mobile clients."
   python3 "${SCRIPT_DIR}/wireguard_sync.py" sync --project-root "${SCRIPT_DIR}" --restart-container
+}
+
+ensure_wireguard_image() {
+  if docker image inspect lscr.io/linuxserver/wireguard:latest >/dev/null 2>&1; then
+    log "Using existing local WireGuard image."
+    return
+  fi
+
+  log "Pulling the WireGuard image."
+  "${COMPOSE_CMD[@]}" pull
 }
 
 ensure_docker_and_compose() {
@@ -532,8 +542,7 @@ ensure_ufw_routed_traffic
 mkdir -p "${SCRIPT_DIR}/config"
 write_env_file
 
-log "Pulling the WireGuard image."
-"${COMPOSE_CMD[@]}" pull
+ensure_wireguard_image
 
 log "Starting the WireGuard container."
 "${COMPOSE_CMD[@]}" up -d
