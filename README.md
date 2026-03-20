@@ -88,7 +88,7 @@ For your current server:
 ```bash
 cd /root/wireguard-vps
 git pull
-bash install-native.sh --host 138.124.88.205 --peer phone --wg-port 443
+bash install-native.sh --host 138.124.88.205 --peer phone --wg-port 51820
 ```
 
 Then show the QR in the terminal:
@@ -105,3 +105,8 @@ Or import the generated file:
 ```
 
 This native path is the recommended fallback when the Docker UI is not worth fighting anymore.
+
+Important:
+
+- If your website stack uses `Caddy` with `HTTP/3`, it may already occupy `443/udp`.
+- In that case, run native `WireGuard` on another UDP port such as `51820`.

@@ -22,7 +22,7 @@ Usage:
 Options:
   --host <value>         Required. Public IP or domain clients will use.
   --peer <value>         Client name. Default: phone
-  --wg-port <value>      WireGuard UDP port. Default: 443
+  --wg-port <value>      WireGuard UDP port. Default: 51820
   --dns <value>          Client DNS servers. Default: 1.1.1.1,1.0.0.1
   --subnet <value>       VPN subnet in CIDR. Default: 10.13.13.0/24
   --client-ip <value>    Client tunnel IP with mask. Default: 10.13.13.2/32
@@ -188,7 +188,7 @@ ensure_root "$@"
 
 WG_HOST=""
 PEER_NAME="phone"
-WG_PORT="443"
+WG_PORT="51820"
 WG_DNS="1.1.1.1,1.0.0.1"
 VPN_SUBNET="10.13.13.0/24"
 CLIENT_IP="10.13.13.2/32"
