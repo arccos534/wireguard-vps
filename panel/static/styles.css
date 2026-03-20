@@ -119,12 +119,13 @@ body {
 
 .peer-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
 .peer-card {
   padding: 22px;
+  width: 100%;
 }
 
 .peer-topline {
@@ -296,8 +297,8 @@ h3 {
 
 .config-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.9fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 2.1fr) minmax(280px, 360px);
+  gap: 20px;
   align-items: start;
   margin-top: 16px;
 }
@@ -325,7 +326,7 @@ pre {
 }
 
 .qr-box img {
-  width: min(100%, 260px);
+  width: min(100%, 280px);
   height: auto;
 }
 
